@@ -1,14 +1,15 @@
 ﻿using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
 using Fiddler;
 using VCSJones.FiddlerCertGen;
 using System.Windows.Forms;
 using VCSJones.FiddlerCertProvider;
 
-namespace VCSJones.FiddlerCertProvider4
+namespace VCSJones.FiddlerCertProvider2
 {
     public class FiddlerCertificate : ICertificateProvider3, ICertificateProviderInfo
     {
@@ -17,16 +18,19 @@ namespace VCSJones.FiddlerCertProvider4
         private const string FIDDLER_EE_DN = "CN=DO_NOT_TRUST_Fiddler, O=DO_NOT_TRUST, OU=Created by http://www.fiddler2.com";
         private const string FIDDLER_EE_PRIVATE_KEY_NAME = "FIDDLER_EE_KEY";
         private const string FIDDLER_ROOT_PRIVATE_KEY_NAME = "FIDDLER_ROOT_KEY_2";
-        private readonly ConcurrentDictionary<string, X509Certificate2> _certificateCache = new ConcurrentDictionary<string, X509Certificate2>(StringComparer.InvariantCultureIgnoreCase);
+        private readonly Dictionary<string, X509Certificate2> _certificateCache = new Dictionary<string, X509Certificate2>(StringComparer.InvariantCultureIgnoreCase);
+        private readonly ReaderWriterLock _rwl = new ReaderWriterLock();
         private readonly CertificateGenerator _generator = new CertificateGenerator();
-        private X509Certificate2 _root;
         private PrivateKey _eePrivateKey;
         private static readonly object _privateKeyLock = new object();
+        private X509Certificate2 _root;
+        private const int LOCK_TIMEOUT = 5000;
 
         static FiddlerCertificate()
         {
             _keyProviderEngine = PlatformSupport.HasCngSupport ? KeyProviders.CNG : KeyProviders.CAPI;
         }
+
 
         private PrivateKey EEPrivateKey
         {
@@ -53,12 +57,6 @@ namespace VCSJones.FiddlerCertProvider4
             }
         }
 
-        internal void ForceEECertificateClear()
-        {
-            _eePrivateKey = null;
-        }
-
-
         public X509Certificate2 GetCertificateForHost(string sHostname)
         {
             IPAddress addr;
@@ -72,44 +70,144 @@ namespace VCSJones.FiddlerCertProvider4
 
         public X509Certificate2 GetCertificateForHostPlain(string sHostname)
         {
-            return _certificateCache.GetOrAdd(sHostname, hostname =>
+            _rwl.AcquireReaderLock(LOCK_TIMEOUT);
+            try
             {
-                var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
-                return _generator.GenerateCertificate(GetRootCertificate(), EEPrivateKey, new X500DistinguishedName(FIDDLER_EE_DN), new[] { hostname }, signatureAlgorithm: signatureAlgorithm);
-            });
+                var certExists = _certificateCache.ContainsKey(sHostname);
+                if (certExists)
+                {
+                    return _certificateCache[sHostname];
+                }
+                else
+                {
+                    var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
+                    var cert = _generator.GenerateCertificate(GetRootCertificate(), EEPrivateKey, new X500DistinguishedName(FIDDLER_EE_DN), new[] { sHostname }, signatureAlgorithm: signatureAlgorithm);
+                    var lockCookie = default(LockCookie);
+                    try
+                    {
+                        lockCookie = _rwl.UpgradeToWriterLock(LOCK_TIMEOUT);
+                        if (!_certificateCache.ContainsKey(sHostname))
+                        {
+                            _certificateCache.Add(sHostname, cert);
+                        }
+                        else
+                        {
+                            return _certificateCache[sHostname];
+                        }
+                    }
+                    finally
+                    {
+                        _rwl.DowngradeFromWriterLock(ref lockCookie);
+                    }
+                    return cert;
+                }
+
+            }
+            finally
+            {
+                _rwl.ReleaseReaderLock();
+            }
         }
 
         public X509Certificate2 GetCertificateForIPAddress(IPAddress address, string hostname)
         {
-            return _certificateCache.GetOrAdd(address.ToString(), addressStr =>
+            var addressStr = address.ToString();
+            _rwl.AcquireReaderLock(LOCK_TIMEOUT);
+            try
             {
-                /*
-                Internet Explorer has weird handling of IPv6 addresses for certificates.
-                It appears to do a string match instead of a binary match on the address's octets.
-                It also seems to require the bracket notation in some circumstances when using dnsName.
-                */
-                var isIPv6 = address.AddressFamily == AddressFamily.InterNetworkV6;
-                var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
-                return _generator.GenerateCertificate(
-                    issuingCertificate: GetRootCertificate(),
-                    privateKey: EEPrivateKey,
-                    dn: new X500DistinguishedName(FIDDLER_EE_DN),
-                    dnsNames : isIPv6 ? new [] {addressStr, hostname} : new[] {addressStr},
-                    signatureAlgorithm: signatureAlgorithm,
-                    ipAddresses: new[] {address}
-                );
-            });
+                var certExists = _certificateCache.ContainsKey(addressStr);
+                if (certExists)
+                {
+                    return _certificateCache[addressStr];
+                }
+                else
+                {
+                    /*
+                    Internet Explorer has weird handling of IPv6 addresses for certificates.
+                    It appears to do a string match instead of a binary match on the address's octets.
+                    It also seems to require the bracket notation in some circumstances when using dnsName.
+                    */
+                    var isIPv6 = address.AddressFamily == AddressFamily.InterNetworkV6;
+                    var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
+                    var cert = _generator.GenerateCertificate(
+                        issuingCertificate: GetRootCertificate(),
+                        privateKey: EEPrivateKey,
+                        dn: new X500DistinguishedName(FIDDLER_EE_DN),
+                        dnsNames: isIPv6 ? new[] { addressStr, hostname } : new[] { addressStr },
+                        signatureAlgorithm: signatureAlgorithm,
+                        ipAddresses: new[] { address }
+                    );
+                    var lockCookie = default(LockCookie);
+                    try
+                    {
+                        lockCookie = _rwl.UpgradeToWriterLock(LOCK_TIMEOUT);
+                        if (!_certificateCache.ContainsKey(addressStr))
+                        {
+                            _certificateCache.Add(addressStr, cert);
+                        }
+                        else
+                        {
+                            return _certificateCache[addressStr];
+                        }
+                    }
+                    finally
+                    {
+                        _rwl.DowngradeFromWriterLock(ref lockCookie);
+                    }
+                    return cert;
+                }
+
+            }
+            finally
+            {
+                _rwl.ReleaseReaderLock();
+            }
         }
 
         public X509Certificate2 GetCertificateForHostWildCard(string sHostname)
         {
             string parentHostname;
-            bool isSubDomain = IsSubDomain(sHostname, out parentHostname);
-            return _certificateCache.GetOrAdd(isSubDomain ? parentHostname : sHostname, hostname =>
+            if (IsSubDomain(sHostname, out parentHostname))
             {
-                var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
-                return _generator.GenerateCertificate(GetRootCertificate(), EEPrivateKey, new X500DistinguishedName(FIDDLER_EE_DN), new[] { hostname, "*." + hostname }, signatureAlgorithm: signatureAlgorithm);
-            });
+                sHostname = parentHostname;
+            }
+            _rwl.AcquireReaderLock(LOCK_TIMEOUT);
+            try
+            {
+                var certExists = _certificateCache.ContainsKey(sHostname);
+                if (certExists)
+                {
+                    return _certificateCache[sHostname];
+                }
+                else
+                {
+                    var signatureAlgorithm = CertificateConfiguration.EECertificateHashAlgorithm;
+                    var cert = _generator.GenerateCertificate(GetRootCertificate(), EEPrivateKey, new X500DistinguishedName(FIDDLER_EE_DN), new[] { sHostname, "*." + sHostname }, signatureAlgorithm: signatureAlgorithm);
+                    var lockCookie = default(LockCookie);
+                    try
+                    {
+                        lockCookie = _rwl.UpgradeToWriterLock(LOCK_TIMEOUT);
+                        if (!_certificateCache.ContainsKey(sHostname))
+                        {
+                            _certificateCache.Add(sHostname, cert);
+                        }
+                        else
+                        {
+                            return _certificateCache[sHostname];
+                        }
+                    }
+                    finally
+                    {
+                        _rwl.DowngradeFromWriterLock(ref lockCookie);
+                    }
+                    return cert;
+                }
+
+            }
+            finally
+            {
+                _rwl.ReleaseReaderLock();
+            }
         }
 
         public static bool IsSubDomain(string hostname, out string parentHostname)
@@ -162,11 +260,16 @@ namespace VCSJones.FiddlerCertProvider4
             return _root;
         }
 
+        internal void ForceEECertificateClear()
+        {
+            _eePrivateKey = null;
+        }
+
         public bool CreateRootCertificate()
         {
             try
             {
-                lock(typeof(CertificateConfiguration))
+                lock (typeof(CertificateConfiguration))
                 {
                     var algorithm = CertificateConfiguration.RootCertificateAlgorithm;
                     var signatureAlgorithm = CertificateConfiguration.RootCertificateHashAlgorithm;
@@ -244,6 +347,7 @@ namespace VCSJones.FiddlerCertProvider4
 
         public bool ClearCertificateCache(bool bClearRoot)
         {
+            _rwl.AcquireWriterLock(LOCK_TIMEOUT);
             _certificateCache.Clear();
             if (bClearRoot)
             {
@@ -264,12 +368,15 @@ namespace VCSJones.FiddlerCertProvider4
                     store.Close();
                 }
             }
+            _rwl.ReleaseWriterLock();
             return true;
         }
 
         public bool CacheCertificateForHost(string sHost, X509Certificate2 oCert)
         {
-            _certificateCache.AddOrUpdate(sHost, oCert, delegate { return oCert; });
+            _rwl.AcquireWriterLock(LOCK_TIMEOUT);
+            _certificateCache[sHost] = oCert;
+            _rwl.ReleaseWriterLock();
             return true;
         }
 

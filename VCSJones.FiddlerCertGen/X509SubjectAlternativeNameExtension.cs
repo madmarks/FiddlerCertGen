@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -33,28 +34,48 @@ namespace VCSJones.FiddlerCertGen
                         case CertAltNameChoice.CERT_ALT_NAME_DNS_NAME:
                             altName.Value = new CERT_ALT_NAME_ENTRY_UNION
                             {
-                                pwszDNSName = Marshal.StringToHGlobalUni(altNames[index].Value)
+                                pwszDNSName = Marshal.StringToHGlobalUni((string)altNames[index].Value)
                             };
                             unionValues.Add(altName.Value.pwszDNSName);
                             break;
                         case CertAltNameChoice.CERT_ALT_NAME_URL:
                             altName.Value = new CERT_ALT_NAME_ENTRY_UNION
                             {
-                                pwszURL = Marshal.StringToHGlobalUni(altNames[index].Value)
+                                pwszURL = Marshal.StringToHGlobalUni((string)altNames[index].Value)
                             };
                             unionValues.Add(altName.Value.pwszURL);
+                            break;
+                        case CertAltNameChoice.CERT_ALT_NAME_IP_ADDRESS:
+                            var ip = (IPAddress)altNames[index].Value;
+                            var addressBytes = ip.GetAddressBytes();
+                            var ipBytes = Marshal.AllocHGlobal(addressBytes.Length);
+                            Marshal.Copy(addressBytes, 0, ipBytes, addressBytes.Length);
+                            altName.Value = new CERT_ALT_NAME_ENTRY_UNION
+                            {
+                                IPAddress = new CRYPTOAPI_BLOB
+                                {
+                                    cbData = (uint) addressBytes.Length,
+                                    pbData = ipBytes
+                                }
+                            };
+                            unionValues.Add(ipBytes);
                             break;
                     }
                     Marshal.StructureToPtr(altName, IntPtrArithmetic.Add(altNamesBuffer, offset), false);
                 }
                 certAltName.rgAltEntry = altNamesBuffer;
                 uint dataSize = 0;
-                byte[] data;
+                LocalBufferSafeHandle data;
                 if (!Crypt32.CryptEncodeObjectEx(EncodingType.X509_ASN_ENCODING, OIDs.szOID_SUBJECT_ALT_NAME2, ref certAltName, 0x8000, IntPtr.Zero, out data, ref dataSize))
                 {
-                    throw new Win32Exception("Failed to encode object.");
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
                 }
-                return data;
+                using(data)
+                {
+                    var buffer = new byte[dataSize];
+                    Marshal.Copy(data.DangerousGetHandle(), buffer, 0, (int)dataSize);
+                    return buffer;
+                }
             }
             finally
             {

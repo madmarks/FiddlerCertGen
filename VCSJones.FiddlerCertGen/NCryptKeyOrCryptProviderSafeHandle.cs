@@ -4,6 +4,7 @@ namespace VCSJones.FiddlerCertGen
 {
     internal class NCryptKeyOrCryptProviderSafeHandle : NCryptHandleBase
     {
+        private bool _callerFree = true;
         public NCryptKeyOrCryptProviderSafeHandle(bool ownsHandle) : base(ownsHandle)
         {
         }
@@ -13,10 +14,14 @@ namespace VCSJones.FiddlerCertGen
 
         }
 
-        public bool IsNCryptKey => NCrypt.NCryptIsKeyHandle(handle);
+        public bool IsNCryptKey => PlatformSupport.HasCngSupport && NCrypt.NCryptIsKeyHandle(handle);
 
         protected override bool ReleaseHandle()
         {
+            if (!_callerFree)
+            {
+                return true;
+            }
             if (IsNCryptKey)
             {
                 return NCrypt.NCryptFreeObject(handle) == SECURITY_STATUS.ERROR_SUCCESS;
@@ -25,6 +30,11 @@ namespace VCSJones.FiddlerCertGen
             {
                 return AdvApi32.CryptReleaseContext(handle, 0u);
             }
+        }
+
+        internal void SetCallerFree(bool callerFree)
+        {
+            _callerFree = callerFree;
         }
     }
 }

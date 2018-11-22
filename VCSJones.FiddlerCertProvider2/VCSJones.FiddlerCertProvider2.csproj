@@ -4,14 +4,13 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{398725FA-8EA8-4DD8-945C-99819655B8BE}</ProjectGuid>
+    <ProjectGuid>{1BDF2401-22CE-4F5E-BFAF-B1C18E3990C1}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>VCSJones.FiddlerCertProvider4</RootNamespace>
-    <AssemblyName>VCSJones.FiddlerCertProvider4</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <RootNamespace>VCSJones.FiddlerCertProvider2</RootNamespace>
+    <AssemblyName>VCSJones.FiddlerCertProvider2</AssemblyName>
+    <TargetFrameworkVersion>v2.0</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile />
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -32,16 +31,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Fiddler">
-      <HintPath>\Program Files (x86)\Fiddler2\Fiddler.exe</HintPath>
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Fiddler20\Fiddler.exe</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="Microsoft.CSharp" />
-    <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ConfigurationDialog.cs">
@@ -51,7 +46,7 @@
       <DependentUpon>ConfigurationDialog.cs</DependentUpon>
     </Compile>
     <Compile Include="FiddlerCertificate.cs" />
-    <Compile Include="FiddlerCertProviderExtension4.cs" />
+    <Compile Include="FiddlerCertProviderExtension2.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -63,6 +58,8 @@
   <ItemGroup>
     <EmbeddedResource Include="ConfigurationDialog.resx">
       <DependentUpon>ConfigurationDialog.cs</DependentUpon>
+      <SubType>
+      </SubType>
     </EmbeddedResource>
   </ItemGroup>
   <Import Project="..\VCSJones.FiddlerCertProvider\VCSJones.FiddlerCertProvider.projitems" Label="Shared" />

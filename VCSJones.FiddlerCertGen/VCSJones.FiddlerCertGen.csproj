@@ -46,6 +46,7 @@
     <Compile Include="Func.cs" />
     <Compile Include="HashAlgorithm.cs" />
     <Compile Include="Interop\AcquirePrivateKeyFlags.cs" />
+    <Compile Include="Interop\AdvApi32.cs" />
     <Compile Include="Interop\ALG_ID.cs" />
     <Compile Include="Interop\ALG_CLASS.cs" />
     <Compile Include="Interop\ALG_SID.cs" />
@@ -70,6 +71,7 @@
     <Compile Include="Interop\CRYPT_KEY_PROV_INFO.cs" />
     <Compile Include="Interop\CRYPT_OBJID_BLOB.cs" />
     <Compile Include="Interop\EncodingType.cs" />
+    <Compile Include="Interop\LocalBufferSafeHandle.cs" />
     <Compile Include="Interop\NATIVE_CRYPTOAPI_BLOB.cs" />
     <Compile Include="Interop\NCryptPropertyReader.cs" />
     <Compile Include="Interop\NCryptPropertyWriter.cs" />
@@ -77,6 +79,7 @@
     <Compile Include="Interop\SelfSignFlags.cs" />
     <Compile Include="KeyProviderBase.cs" />
     <Compile Include="KeyProviders.cs" />
+    <Compile Include="KeyUsage.cs" />
     <Compile Include="LibrarySafeHandle.cs" />
     <Compile Include="Interop\Crypt32.cs" />
     <Compile Include="Interop\Kernel32.cs" />

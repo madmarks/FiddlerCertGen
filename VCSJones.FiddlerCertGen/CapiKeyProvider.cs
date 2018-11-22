@@ -22,7 +22,7 @@ namespace VCSJones.FiddlerCertGen
         }
 
 
-        internal override NCryptKeyOrCryptProviderSafeHandle CreateKey(string keyName, int keySize, Algorithm algorithm, bool overwrite)
+        internal override NCryptKeyOrCryptProviderSafeHandle CreateKey(string keyName, int keySize, Algorithm algorithm, bool overwrite, KeyUsage keyUsage, out KeySpec keySpec)
         {
             const int ALREADY_EXISTS = unchecked((int)0x8009000f);
             if (algorithm != Algorithm.RSA)
@@ -53,11 +53,24 @@ namespace VCSJones.FiddlerCertGen
             var keySizeFlags = ((uint)keySize & 0xFFFFU) << 16;
             var genKeyFlags = ((ushort)flags) | keySizeFlags;
             CryptKeySafeHandle key;
-            if (!AdvApi32.CryptGenKey(provider, KeySpec.AT_KEYEXCHANGE, genKeyFlags, out key))
+            KeySpec algorithmKeySpec;
+            switch (keyUsage)
+            {
+                case KeyUsage.KeyExchange:
+                    algorithmKeySpec = KeySpec.AT_KEYEXCHANGE;
+                    break;
+                case KeyUsage.Signature:
+                    algorithmKeySpec = KeySpec.AT_SIGNATURE;
+                    break;
+                default:
+                    throw new ArgumentException(nameof(keyUsage));
+            }
+            if (!AdvApi32.CryptGenKey(provider, algorithmKeySpec, genKeyFlags, out key))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
             key.Close();
+            keySpec = algorithmKeySpec;
             return provider;
         }
 
@@ -74,7 +87,7 @@ namespace VCSJones.FiddlerCertGen
             {
                 throw new InvalidOperationException("Failed to get property.");
             }
-            var buffer = Marshal.AllocHGlobal((int) size);
+            var buffer = Marshal.AllocHGlobal((int)size);
             try
             {
                 if (!AdvApi32.CryptGetProvParam(handle, PP_NAME, buffer, ref size, 0u))
@@ -95,8 +108,9 @@ namespace VCSJones.FiddlerCertGen
             return AlgorithmGroup.RSA.Name;
         }
 
-        internal override NCryptKeyOrCryptProviderSafeHandle OpenExisting(string keyName)
+        internal override unsafe NCryptKeyOrCryptProviderSafeHandle OpenExisting(string keyName, out KeySpec keySpec)
         {
+            keySpec = KeySpec.NONE;
             const int DOES_NOT_EXIST = unchecked((int)0x80090016);
             NCryptKeyOrCryptProviderSafeHandle provider;
             if (!AdvApi32.CryptAcquireContext(out provider, keyName, _providerName, ProviderType.PROV_RSA_AES, 0u))
@@ -108,6 +122,14 @@ namespace VCSJones.FiddlerCertGen
                 }
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
+            const uint PP_KEYSPEC = 0x27;
+            uint* keySpecBuffer = stackalloc uint[1];
+            var dataLength = (uint)Marshal.SizeOf(typeof(uint));
+            if (!AdvApi32.CryptGetProvParam(provider, PP_KEYSPEC, keySpecBuffer, ref dataLength, 0u))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            keySpec = (KeySpec)(*keySpecBuffer);
             return provider;
         }
     }
